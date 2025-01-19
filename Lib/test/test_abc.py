@@ -522,6 +522,7 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(A.__abstractmethods__, set())
             A()
 
+
         def test_update_new_abstractmethods(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod

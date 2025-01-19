@@ -113,6 +113,7 @@ class TestFilemode:
             else:
                 self.assertFalse(func(mode))
 
+    @os_helper.skip_unless_working_chmod
     def test_mode(self):
         with open(TESTFN, 'w'):
             pass
@@ -144,13 +145,21 @@ class TestFilemode:
             self.assertEqual(modestr, '-r--r--r--')
             self.assertEqual(self.statmod.S_IMODE(st_mode), 0o444)
         else:
+            os.chmod(TESTFN, 0o500)
+            st_mode, modestr = self.get_mode()
+            self.assertEqual(modestr[:3], '-r-')
+            self.assertS_IS("REG", st_mode)
+            self.assertEqual(self.statmod.S_IMODE(st_mode), 0o444)
+
             os.chmod(TESTFN, 0o700)
             st_mode, modestr = self.get_mode()
             self.assertEqual(modestr[:3], '-rw')
             self.assertS_IS("REG", st_mode)
             self.assertEqual(self.statmod.S_IFMT(st_mode),
                              self.statmod.S_IFREG)
+            self.assertEqual(self.statmod.S_IMODE(st_mode), 0o666)
 
+    @os_helper.skip_unless_working_chmod
     def test_directory(self):
         os.mkdir(TESTFN)
         os.chmod(TESTFN, 0o700)
@@ -161,7 +170,9 @@ class TestFilemode:
         else:
             self.assertEqual(modestr[0], 'd')
 
-    @unittest.skipUnless(hasattr(os, 'symlink'), 'os.symlink not available')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    @os_helper.skip_unless_symlink
     def test_link(self):
         try:
             os.symlink(os.getcwd(), TESTFN)
@@ -209,6 +220,8 @@ class TestFilemode:
             self.assertEqual(modestr[0], 's')
             self.assertS_IS("SOCK", st_mode)
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RustPython flaky")
     def test_module_attributes(self):
         for key, value in self.stat_struct.items():
             modvalue = getattr(self.statmod, key)
@@ -227,6 +240,8 @@ class TestFilemode:
             self.assertTrue(callable(func))
             self.assertEqual(func(0), 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RustPython flaky")
     @unittest.skipUnless(sys.platform == "win32",
                          "FILE_ATTRIBUTE_* constants are Win32 specific")
     def test_file_attribute_constants(self):
@@ -239,50 +254,9 @@ class TestFilemode:
 class TestFilemodeCStat(TestFilemode, unittest.TestCase):
     statmod = c_stat
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_devices(self):
-        super().test_devices()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_directory(self):
-        super().test_directory()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_file_attribute_constants(self):
-        super().test_file_attribute_constants()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_link(self):
-        super().test_link()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_mode(self):
-        super().test_mode()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_module_attributes(self):
-        super().test_module_attributes()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_socket(self):
-        super().test_socket()
-
 
 class TestFilemodePyStat(TestFilemode, unittest.TestCase):
     statmod = py_stat
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_link(self):
-            super().test_link()
 
 
 if __name__ == '__main__':

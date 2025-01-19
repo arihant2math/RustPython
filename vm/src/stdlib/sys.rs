@@ -80,7 +80,7 @@ mod sys {
 
     #[cfg(windows)]
     #[pyattr(name = "dllhandle")]
-    const DLLHANDLE: usize = 0;
+    const DLLHANDLE: usize = 0; // TODO: seems like a mock
 
     #[pyattr]
     fn default_prefix(_vm: &VirtualMachine) -> &'static str {
