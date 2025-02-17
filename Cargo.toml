@@ -39,6 +39,7 @@ clap = "2.34"
 dirs = { package = "dirs-next", version = "2.0.0" }
 env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
 flamescope = { version = "0.1.2", optional = true }
+mimalloc = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 libc = { workspace = true }
@@ -77,6 +78,16 @@ opt-level = 3
 
 [profile.release]
 lto = "thin"
+
+[profile.perf]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+
+[profile.prof]
+# Profile for performance testing
+inherits = "release"
+debug = 1
 
 [patch.crates-io]
 # REDOX START, Uncomment when you want to compile/check with redoxer
