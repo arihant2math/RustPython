@@ -667,5 +667,7 @@ class B1(bytearray):
         return me
 b = B1.fromhex('a0a1a2')
 assert b.foo == 'bar'
+import sys
+assert b'-\xff'.decode(sys.getfilesystemencoding(), 'surrogateescape') == '-\udcff'
 
 skip_if_unsupported(3,11,test__bytes__)
