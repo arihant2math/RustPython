@@ -19,6 +19,7 @@ mod blake2;
 mod hashlib;
 mod md5;
 mod sha1;
+mod sha2;
 mod sha256;
 mod sha3;
 mod sha512;
@@ -120,6 +121,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_hashlib" => hashlib::make_module,
             "_sha1" => sha1::make_module,
             "_sha3" => sha3::make_module,
+            "_sha2" => sha2::make_module,
             "_sha256" => sha256::make_module,
             "_sha512" => sha512::make_module,
             "_md5" => md5::make_module,
