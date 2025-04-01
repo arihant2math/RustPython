@@ -19,6 +19,7 @@ freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/fre
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 bz2 = ["stdlib", "rustpython-stdlib/bz2"]
+lzma = ["stdlib", "rustpython-stdlib/lzma"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
