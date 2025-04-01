@@ -1413,6 +1413,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzma-sys"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fda04ab3764e6cde78b9974eec4f779acaba7c4e84b36eca3cf77c581b85d27"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "mac_address"
 version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2240,15 +2251,6 @@ version = "0.0.0"
 source = "git+https://github.com/astral-sh/ruff.git?tag=0.11.0#2cd25ef6410fb5fca96af1578728a3d828d2d53a"
 
 [[package]]
-name = "rust-lzma"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "895dc04daeaeee338bb96e229797902ed3f0675bfc59d5b42e0f0b0c13ac54da"
-dependencies = [
- "pkg-config",
-]
-
-[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2494,6 +2496,7 @@ dependencies = [
  "libc",
  "libsqlite3-sys",
  "libz-rs-sys",
+ "lzma-sys",
  "mac_address",
  "malachite-bigint",
  "md-5",
@@ -2513,7 +2516,6 @@ dependencies = [
  "paste",
  "puruspe",
  "rand_core 0.9.3",
- "rust-lzma",
  "rustix",
  "rustpython-common",
  "rustpython-derive",

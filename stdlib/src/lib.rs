@@ -37,6 +37,8 @@ mod statistics;
 // mod re;
 #[cfg(feature = "bz2")]
 mod bz2;
+#[cfg(feature = "lzma")]
+mod lzma;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -159,6 +161,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(feature = "bz2")]
         {
             "_bz2" => bz2::make_module,
+        }
+        #[cfg(feature = "lzma")]
+        {
+            "_lzma" => lzma::make_module,
         }
         #[cfg(windows)]
         {
