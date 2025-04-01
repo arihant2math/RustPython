@@ -10,6 +10,7 @@ mod imp;
 pub mod io;
 mod itertools;
 mod marshal;
+mod opcode;
 mod operator;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
@@ -85,6 +86,7 @@ pub fn get_module_inits() -> StdlibMap {
             "_functools" => functools::make_module,
             "itertools" => itertools::make_module,
             "_io" => io::make_module,
+            "_opcode" => opcode::make_module,
             "marshal" => marshal::make_module,
             "_operator" => operator::make_module,
             "_signal" => signal::make_module,
