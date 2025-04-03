@@ -57,6 +57,7 @@ pub mod exceptions;
 pub mod format;
 pub mod frame;
 pub mod function;
+pub(crate) mod gc;
 pub mod import;
 mod intern;
 pub mod iter;
