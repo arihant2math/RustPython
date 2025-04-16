@@ -11,7 +11,7 @@ import unittest
 from test import support
 
 class RegressionTestResult(unittest.TextTestResult):
-    USE_XML = False
+    USE_XML = True
 
     def __init__(self, stream, descriptions, verbosity):
         super().__init__(stream=stream, descriptions=descriptions,
