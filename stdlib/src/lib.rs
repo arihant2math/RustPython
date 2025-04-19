@@ -80,9 +80,10 @@ mod termios;
 )))]
 mod uuid;
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+mod lzma;
 #[cfg(feature = "tkinter")]
 mod tkinter;
-mod lzma;
 
 use rustpython_common as common;
 use rustpython_vm as vm;
@@ -120,7 +121,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "faulthandler" => faulthandler::make_module,
             "gc" => gc::make_module,
             "_hashlib" => hashlib::make_module,
-            "_lzma" => lzma::make_module,
             "_sha1" => sha1::make_module,
             "_sha3" => sha3::make_module,
             "_sha256" => sha256::make_module,
@@ -151,6 +151,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_multiprocessing" => multiprocessing::make_module,
             "_socket" => socket::make_module,
+        }
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        {
+            "_lzma" => lzma::make_module,
         }
         #[cfg(all(feature = "sqlite", not(any(target_os = "android", target_arch = "wasm32"))))]
         {
