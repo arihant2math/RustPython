@@ -1,159 +1,104 @@
 // cspell:disable
 
-use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
+use crate::builtins::{PyNone, PyStr, PyTupleRef, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::stdlib::ctypes::PyCData;
 use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::base::{PyCSimple, ffi_type_from_str};
 use crate::types::{Callable, Constructor};
-use crate::{Py, PyObjectRef, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use libffi::middle::{Arg, Cif, CodePtr, Type};
 use libloading::Symbol;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
-use std::ffi;
+use std::ffi::{self, c_void};
 use std::fmt::Debug;
+use crate::types::Representable;
+use crate::function::Either;
 
-// https://github.com/python/cpython/blob/4f8bb3947cfbc20f970ff9d9531e1132a9e95396/Modules/_ctypes/callproc.c#L15
-
-/// Returns none if the `_type_` attribute cannot be found/converted to a string
-fn get_type_char(ty: PyTypeRef) -> Option<String> {
-    // PyTypeRef could be c_int, c_float, c_double, etc., we need to get the _type_ attribute
-    // and convert it to a Type
-    let type_str = ty.get_attr("_type_")?;
-    let type_str = type_str.downcast_ref::<PyStr>()?.to_string();
-    Some(type_str)
-}
-
-fn type_ref_to_type(ty: PyTypeRef) -> Type {
-    // PyTypeRef could be c_int, c_float, c_double, etc., we need to get the _type_ attribute
-    // and convert it to a Type
-    unimplemented!()
-}
-
-fn obj_from_type_ref_and_data(data: ffi::c_void, ty: PyTypeRef) -> PyObjectRef {
-    unimplemented!()
-}
-
-#[derive(Debug)]
-pub struct Function {
-    args: Vec<Type>,
-    // TODO: no protection from use-after-free
-    pointer: CodePtr,
-    cif: Cif,
-    return_type: Option<PyTypeRef>,
-}
-
-unsafe impl Send for Function {}
-unsafe impl Sync for Function {}
+// See also: https://github.com/python/cpython/blob/4f8bb3947cfbc20f970ff9d9531e1132a9e95396/Modules/_ctypes/callproc.c#L15
 
 type FP = unsafe extern "C" fn();
 
-impl Function {
-    pub unsafe fn load(
-        library: &libloading::Library,
-        function: &str,
-        args: &[PyObjectRef],
-        ret_type: &Option<PyTypeRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        // map each arg to a PyCSimple
-        let args = args
-            .iter()
-            .map(|arg| {
-                if let Some(arg) = arg.payload_if_subclass::<PyCSimple>(vm) {
-                    let converted = ffi_type_from_str(&arg._type_);
-                    return match converted {
-                        Some(t) => Ok(t),
-                        None => Err(vm.new_type_error("Invalid type".to_string())), // TODO: add type name
-                    };
-                }
-                if let Some(arg) = arg.payload_if_subclass::<PyCArray>(vm) {
-                    let t = arg.typ.read();
-                    let ty_attributes = t.attributes.read();
-                    let ty_pystr =
-                        ty_attributes
-                            .get(vm.ctx.intern_str("_type_"))
-                            .ok_or_else(|| {
-                                vm.new_type_error("Expected a ctypes simple type".to_string())
-                            })?;
-                    let ty_str = ty_pystr
-                        .downcast_ref::<PyStr>()
-                        .ok_or_else(|| {
-                            vm.new_type_error("Expected a ctypes simple type".to_string())
-                        })?
-                        .to_string();
-                    let converted = ffi_type_from_str(&ty_str);
-                    match converted {
-                        Some(_t) => {
-                            // TODO: Use
-                            Ok(Type::void())
-                        }
-                        None => Err(vm.new_type_error("Invalid type".to_string())), // TODO: add type name
-                    }
-                } else {
-                    Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
-                }
-            })
-            .collect::<PyResult<Vec<Type>>>()?;
-        let terminated = format!("{}\0", function);
-        let pointer: Symbol<'_, FP> = unsafe {
-            library
-                .get(terminated.as_bytes())
-                .map_err(|err| err.to_string())
-                .map_err(|err| vm.new_attribute_error(err))?
-        };
-        let code_ptr = CodePtr(*pointer as *mut _);
-        let return_type = match ret_type.clone() {
-            // TODO: Fix this
-            Some(_t) => {
-                return Err(vm.new_not_implemented_error("Return type not implemented".to_string()));
-            }
-            None => Type::c_int(),
-        };
-        let cif = Cif::new(args.clone(), return_type);
-        Ok(Function {
-            args,
-            cif,
-            pointer: code_ptr,
-            return_type: ret_type,
-        })
+pub trait ArgumentType {
+    fn to_ffi_type(&self, vm: &VirtualMachine) -> PyResult<Type>;
+    fn convert_object(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arg>;
+}
+
+impl ArgumentType for PyTypeRef {
+    fn to_ffi_type(&self, vm: &VirtualMachine) -> PyResult<Type> {
+        let typ = self.get_class_attr(vm.ctx.intern_str("_type_")).ok_or(
+            vm.new_type_error("Unsupported argument type".to_string()))?;
+        let typ = typ.downcast_ref::<PyStr>().ok_or(
+            vm.new_type_error("Unsupported argument type".to_string()))?;
+        let typ = typ.to_string();
+        let typ = typ.as_str();
+        let typ = ffi_type_from_str(typ);
+        if let Some(typ) = typ {
+            return Ok(typ);
+        } else {
+            return Err(vm.new_type_error(format!("Unsupported argument type: {}", typ)));
+        }
     }
 
-    pub unsafe fn call(
-        &self,
-        args: Vec<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        let args = args
-            .into_iter()
-            .enumerate()
-            .map(|(count, arg)| {
-                // none type check
-                if let Some(d) = arg.payload_if_subclass::<PyCSimple>(vm) {
-                    return Ok(d.to_arg(self.args[count].clone(), vm).unwrap());
-                }
-                if let Some(d) = arg.payload_if_subclass::<PyCArray>(vm) {
-                    return Ok(d.to_arg(vm).unwrap());
-                }
-                Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
-            })
-            .collect::<PyResult<Vec<Arg>>>()?;
-        let result: ffi::c_void = unsafe { self.cif.call(self.pointer, &args) };
-        Ok(vm.ctx.new_int(result).into())
+    fn convert_object(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Arg> {
+        // if self.fast_isinstance::<PyCArray>(vm) {
+        //     let array = value.downcast::<PyCArray>()?;
+        //     return Ok(Arg::from(array.as_ptr()));
+        // }
+        if self.fast_isinstance::<PyCSimple>(vm) {
+            let simple = value.downcast::<PyCSimple>()?;
+            let typ = self.to_ffi_type(vm)?;
+            simple.to_arg(typ, vm)?;
+            return Ok(Arg::from(simple.as_ptr()));
+        }
+        Err(vm.new_type_error("Unsupported argument type".to_string()))
+    }
+}
+
+pub trait ReturnType {
+    fn to_ffi_type(&self) -> Type;
+    fn from_ffi_type(&self, value: *mut ffi::c_void, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>>;
+}
+
+impl ReturnType for PyTypeRef {
+    fn to_ffi_type(&self) -> Type {
+        ffi_type_from_str(self.name().as_str())
+    }
+
+    fn from_ffi_type(&self, value: *mut ffi::c_void, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+        if self.isinstance::<PyCArray>(vm) {
+            let array = value.downcast::<PyCArray>()?;
+            return Ok(Some(array.to_object(vm)));
+        }
+        if self.isinstance::<PyCSimple>(vm) {
+            let simple = value.downcast::<PyCSimple>()?;
+            return Ok(Some(simple.to_object(vm)));
+        }
+        Err(vm.new_type_error("Unsupported return type".to_string()))
+    }
+}
+
+impl ReturnType for PyNone {
+    fn to_ffi_type(&self) -> Type {
+        ffi_type_from_str("void")
+    }
+
+    fn from_ffi_type(&self, _value: *mut ffi::c_void, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+        Ok(None)
     }
 }
 
 #[pyclass(module = "_ctypes", name = "CFuncPtr", base = "PyCData")]
 #[derive(PyPayload)]
 pub struct PyCFuncPtr {
-    pub name: PyRwLock<String>,
-    pub _flags_: AtomicCell<u32>,
-    // FIXME(arihant2math): This shouldn't be an option, setting the default as the none type should work
-    //  This is a workaround for now and I'll fix it later
-    pub _restype_: PyRwLock<Option<PyTypeRef>>,
+    pub ptr: PyRwLock<Option<CodePtr>>,
+    pub needs_free: AtomicCell<bool>,
+    pub arg_types: PyRwLock<Option<Vec<PyTypeRef>>>,
+    pub res_type: PyRwLock<Option<PyObjectRef>>,
+    pub _flags_: AtomicCell<i32>,
     pub handler: PyObjectRef,
 }
 
@@ -180,10 +125,35 @@ impl Constructor for PyCFuncPtr {
             .nth(1)
             .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements".to_string()))?
             .clone();
+        let handle = handler.try_int(vm)?.as_bigint().clone();
+        let library_cache = crate::stdlib::ctypes::library::libcache().read();
+        let library = library_cache
+            .get_lib(
+                handle
+                    .to_usize()
+                    .ok_or(vm.new_value_error("Invalid handle".to_string()))?,
+            )
+            .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?;
+        let inner_lib = library.lib.lock();
+        
+        let terminated = format!("{}\0", &name);
+        let code_ptr = if let Some(lib) = &*inner_lib {
+            let pointer: Symbol<'_, FP> = unsafe {
+                lib
+                    .get(terminated.as_bytes())
+                    .map_err(|err| err.to_string())
+                    .map_err(|err| vm.new_attribute_error(err))?
+            };
+            Some(CodePtr(*pointer as *mut _))
+        } else {
+            None
+        };
         Ok(Self {
+            ptr: PyRwLock::new(code_ptr),
+            needs_free: AtomicCell::new(false),
+            arg_types: PyRwLock::new(None),
             _flags_: AtomicCell::new(0),
-            name: PyRwLock::new(name),
-            _restype_: PyRwLock::new(None),
+            res_type: PyRwLock::new(None),
             handler,
         }
         .to_pyobject(vm))
@@ -193,53 +163,108 @@ impl Constructor for PyCFuncPtr {
 impl Callable for PyCFuncPtr {
     type Args = FuncArgs;
     fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        unsafe {
-            let handle = zelf.handler.get_attr("_handle", vm)?;
-            let handle = handle.try_int(vm)?.as_bigint().clone();
-            let library_cache = crate::stdlib::ctypes::library::libcache().read();
-            let library = library_cache
-                .get_lib(
-                    handle
-                        .to_usize()
-                        .ok_or(vm.new_value_error("Invalid handle".to_string()))?,
-                )
-                .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?;
-            let inner_lib = library.lib.lock();
-            let name = zelf.name.read();
-            let res_type = zelf._restype_.read();
-            let func = Function::load(
-                inner_lib
-                    .as_ref()
-                    .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?,
-                &name,
-                &args.args,
-                &res_type,
-                vm,
-            )?;
-            func.call(args.args, vm)
+        // This is completely seperate from the C python implementation
+
+        // Cif init
+        let arg_types = zelf.arg_types.read();
+        let ffi_arg_types = arg_types.as_ref().ok_or_else(|| {
+            vm.new_type_error("argtypes not set".to_string())
+        })?.iter().map(|t| {
+            t.to_ffi_type()
+        }).collect::<Vec<_>>();
+        let return_type = zelf.res_type.read();
+        let ffi_return_type = return_type.as_ref().map(|t| {
+            t.to_ffi_type()
+        }).unwrap_or_else(|| Type::i32());
+        let cif = Cif::new(ffi_arg_types, ffi_return_type);
+
+        // Call the function
+        let ffi_args = args
+            .into_iter()
+            .map(|arg| {
+                let arg_type = arg_types.get(0).ok_or_else(|| {
+                    vm.new_type_error("argtypes not set".to_string())
+                })?;
+                arg_type.convert_object(arg, vm)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let pointer = zelf.ptr.read();
+        let code_ptr = pointer.as_ref().ok_or_else(|| {
+            vm.new_type_error("Function pointer not set".to_string())
+        })?;
+        let output: c_void = unsafe {
+            cif.call(*code_ptr, &args)
+        };
+        let return_type = return_type.map(|f| f.from_ffi_type(output)?).unwrap_or_else(|| {
+            vm.ctx.new_int(output as i32)
+        });
+        if let Some(return_type) = return_type {
+            Ok(return_type)
+        } else {
+            Ok(vm.get_none())
         }
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Callable, Constructor))]
+impl Representable for PyCFuncPtr {
+    fn repr_str(zelf: &Py<Self> ,vm: &VirtualMachine) -> PyResult<String>  {
+        let index = zelf.ptr.read();
+        let index = index.map(|ptr| ptr.0 as usize).unwrap_or(0);
+        let type_name = zelf.class().name();
+        #[cfg(windows)]
+        {
+            let index = index - 0x1000;
+            return Ok(format!("<COM method offset {index:#x} {type_name}>"));
+        }
+        Ok(format!("<{type_name} object at {index:#x}>"))
+    }
+}
+
+// TODO: fix
+unsafe impl Send for PyCFuncPtr {}
+unsafe impl Sync for PyCFuncPtr {}
+
+#[pyclass(flags(BASETYPE), with(Callable, Constructor, Representable))]
 impl PyCFuncPtr {
-    #[pygetset(magic)]
-    fn name(&self) -> String {
-        self.name.read().clone()
-    }
-
-    #[pygetset(setter, magic)]
-    fn set_name(&self, name: String) {
-        *self.name.write() = name;
-    }
-
     #[pygetset(name = "_restype_")]
-    fn restype(&self) -> Option<PyTypeRef> {
-        self._restype_.read().as_ref().cloned()
+    fn restype(&self) -> Option<PyObjectRef> {
+        self.res_type.read().as_ref().cloned()
     }
 
     #[pygetset(name = "_restype_", setter)]
-    fn set_restype(&self, restype: PyTypeRef) {
-        *self._restype_.write() = Some(restype);
+    fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // has to be type, callable, or none
+        // TODO: Callable support
+        if vm.is_none(&restype) || restype.isinstance::<PyTypeRef>(vm) {
+            *self.res_type.write() = Some(restype);
+            Ok(())
+        } else {
+            Err(vm.new_type_error("restype must be a type, a callable, or None".to_string()))
+        }
+    }
+
+    #[pygetset(name = "argtypes")]
+    fn argtypes(&self) -> Vec<PyTypeRef> {
+        self.arg_types.read().clone()
+    }
+
+    #[pygetset(name = "argtypes", setter)]
+    fn set_argtypes(&self, argtypes: Either<PyNone, PyTupleRef>, vm: &VirtualMachine) -> PyResult<()> {
+        match argtypes {
+            Either::A(_) => {
+                *self.arg_types.write() = None;
+                Ok(())
+            }
+            Either::B(tuple) => {
+                self.arg_types.write() = Some(tuple.iter()
+                    .map(|obj| {
+                        obj.downcast_ref::<PyTypeRef>()
+                            .ok_or_else(|| vm.new_type_error("Expected a type".to_string()))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?);
+                Ok(())
+            }
+        }
+
     }
 }

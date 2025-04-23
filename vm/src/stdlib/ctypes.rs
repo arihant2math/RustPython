@@ -7,6 +7,7 @@ pub(crate) mod function;
 pub(crate) mod library;
 pub(crate) mod pointer;
 pub(crate) mod structure;
+pub(crate) mod thunk;
 pub(crate) mod union;
 pub(crate) mod util;
 
@@ -23,11 +24,13 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PyCSimple::make_class(ctx),
         "Array" => array::PyCArray::make_class(ctx),
+        "CField" => field::PyCField::make_class(ctx),
         "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
         "PyCPointerType" => pointer::PyCPointerType::make_class(ctx),
         "_Pointer" => pointer::PyCPointer::make_class(ctx),
         "_pointer_type_cache" => ctx.new_dict(),
         "Structure" => structure::PyCStructure::make_class(ctx),
+        "CThunkObject" => thunk::PyCThunk::make_class(ctx), 
         "Union" => union::PyCUnion::make_class(ctx),
     })
 }

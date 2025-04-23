@@ -1,11 +1,13 @@
-#[pyclass]
+use crate::PyObjectRef;
+
+#[pyclass(name, module = "_ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct StgInfo {
     initialized: i32,
     size: usize,   // number of bytes
     align: usize,  // alignment requirements
     length: usize, // number of fields
-    ffi_type_pointer: ffi::ffi_type,
+    // ffi_type_pointer: ffi::ffi_type,
     proto: PyObjectRef,           // Only for Pointer/ArrayObject
     setfunc: Option<PyObjectRef>, // Only for simple objects
     getfunc: Option<PyObjectRef>, // Only for simple objects
