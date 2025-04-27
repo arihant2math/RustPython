@@ -16,11 +16,7 @@
 
 #[pyclass(name = "CThunkObject", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
-pub struct PyCThunk {
-
-}
+pub struct PyCThunk {}
 
 #[pyclass]
-impl PyCThunk {
-
-}
+impl PyCThunk {}

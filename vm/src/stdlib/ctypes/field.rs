@@ -59,7 +59,6 @@ struct PyCFieldConstructorArgs {
     //               Py_ssize_t byte_size, Py_ssize_t byte_offset,
     //               Py_ssize_t index, int _internal_use,
     //               PyObject *bit_size_obj, PyObject *bit_offset_obj
-    
 }
 
 impl Constructor for PyCField {

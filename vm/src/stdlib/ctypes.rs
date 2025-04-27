@@ -30,7 +30,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "_Pointer" => pointer::PyCPointer::make_class(ctx),
         "_pointer_type_cache" => ctx.new_dict(),
         "Structure" => structure::PyCStructure::make_class(ctx),
-        "CThunkObject" => thunk::PyCThunk::make_class(ctx), 
+        "CThunkObject" => thunk::PyCThunk::make_class(ctx),
         "Union" => union::PyCUnion::make_class(ctx),
     })
 }
