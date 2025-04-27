@@ -54,7 +54,7 @@ impl Representable for PyCField {
 }
 
 #[derive(Debug, FromArgs)]
-struct PyCFieldConstructorArgs {
+pub struct PyCFieldConstructorArgs {
     // PyObject *name, PyObject *proto,
     //               Py_ssize_t byte_size, Py_ssize_t byte_offset,
     //               Py_ssize_t index, int _internal_use,

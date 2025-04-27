@@ -1,15 +1,13 @@
 // cspell:disable
 
-use crate::builtins::{PyNone, PyStr, PyTupleRef, PyType, PyTypeRef};
+use crate::builtins::{PyNone, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
-use crate::function::Either;
 use crate::function::FuncArgs;
 use crate::stdlib::ctypes::PyCData;
-use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::base::{PyCSimple, ffi_type_from_str};
 use crate::types::Representable;
 use crate::types::{Callable, Constructor};
-use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use libffi::middle::{Arg, Cif, CodePtr, Type};
 use libloading::Symbol;
@@ -52,7 +50,9 @@ impl ArgumentType for PyTypeRef {
         // }
         if let Ok(simple) = value.downcast::<PyCSimple>() {
             let typ = ArgumentType::to_ffi_type(self, vm)?;
-            let arg = simple.to_arg(typ, vm).ok_or(vm.new_type_error("Unsupported argument type".to_string()))?;
+            let arg = simple
+                .to_arg(typ, vm)
+                .ok_or(vm.new_type_error("Unsupported argument type".to_string()))?;
             return Ok(arg);
         }
         Err(vm.new_type_error("Unsupported argument type".to_string()))
@@ -175,22 +175,27 @@ impl Callable for PyCFuncPtr {
             .as_ref()
             .ok_or_else(|| vm.new_type_error("argtypes not set".to_string()))?
             .iter()
-            .map(|t| ArgumentType::to_ffi_type(&t))
+            .map(|t| ArgumentType::to_ffi_type(t, vm).unwrap())
             .collect::<Vec<_>>();
         let return_type = zelf.res_type.read();
         let ffi_return_type = return_type
             .as_ref()
-            .map(|t| ReturnType::to_ffi_type(t))
+            .map(|t| ReturnType::to_ffi_type(&t.clone().downcast::<PyType>().unwrap()))
+            .ok_or_else(|| vm.new_type_error("restype improperly set".to_string()))?
             .unwrap_or_else(|| Type::i32());
         let cif = Cif::new(ffi_arg_types, ffi_return_type);
 
         // Call the function
         let ffi_args = args
+            .args
             .into_iter()
-            .map(|arg| {
+            .enumerate()
+            .map(|(n, arg)| {
                 let arg_type = arg_types
-                    .get(0)
-                    .ok_or_else(|| vm.new_type_error("argtypes not set".to_string()))?;
+                    .as_ref()
+                    .ok_or_else(|| vm.new_type_error("argtypes not set".to_string()))?
+                    .get(n)
+                    .ok_or_else(|| vm.new_type_error("argument amount mismatch".to_string()))?;
                 arg_type.convert_object(arg, vm)
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -198,14 +203,22 @@ impl Callable for PyCFuncPtr {
         let code_ptr = pointer
             .as_ref()
             .ok_or_else(|| vm.new_type_error("Function pointer not set".to_string()))?;
-        let output: c_void = unsafe { cif.call(*code_ptr, &args) };
+        let mut output: c_void = unsafe { cif.call(*code_ptr, &ffi_args) };
         let return_type = return_type
-            .map(|f| f.from_ffi_type(output)?)
-            .unwrap_or_else(|| vm.ctx.new_int(output as i32));
+            .as_ref()
+            .map(|f| {
+                f.clone()
+                    .downcast::<PyType>()
+                    .unwrap()
+                    .from_ffi_type(&mut output, vm)
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or_else(|| Some(vm.ctx.new_int(output as i32).as_object().to_pyobject(vm)));
         if let Some(return_type) = return_type {
             Ok(return_type)
         } else {
-            Ok(vm.get_none())
+            Ok(vm.ctx.none())
         }
     }
 }
@@ -239,7 +252,7 @@ impl PyCFuncPtr {
     fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // has to be type, callable, or none
         // TODO: Callable support
-        if vm.is_none(&restype) || restype.isinstance::<PyTypeRef>(vm) {
+        if vm.is_none(&restype) || restype.downcast_ref::<PyType>().is_some() {
             *self.res_type.write() = Some(restype);
             Ok(())
         } else {
@@ -248,32 +261,34 @@ impl PyCFuncPtr {
     }
 
     #[pygetset(name = "argtypes")]
-    fn argtypes(&self) -> Vec<PyTypeRef> {
-        self.arg_types.read().clone()
+    fn argtypes(&self, vm: &VirtualMachine) -> PyTupleRef {
+        PyTuple::new_ref(
+            self.arg_types
+                .read()
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| t.to_pyobject(vm))
+                .collect(),
+            &vm.ctx
+        )
     }
 
     #[pygetset(name = "argtypes", setter)]
-    fn set_argtypes(
-        &self,
-        argtypes: Either<PyNone, PyTupleRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match argtypes {
-            Either::A(_) => {
-                *self.arg_types.write() = None;
-                Ok(())
-            }
-            Either::B(tuple) => {
-                *self.arg_types.write() = Some(
-                    tuple
-                        .iter()
-                        .map(|obj| {
-                            obj.downcast_ref::<PyType>().unwrap()
-                        })
-                        .collect::<Vec<_>>()
-                );
-                Ok(())
-            }
+    fn set_argtypes(&self, argtypes: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let none = vm.is_none(&argtypes);
+        if none {
+            *self.arg_types.write() = None;
+            Ok(())
+        } else {
+            let tuple = argtypes.downcast::<PyTuple>().unwrap();
+            *self.arg_types.write() = Some(
+                tuple
+                    .iter()
+                    .map(|obj| obj.clone().downcast::<PyType>().unwrap())
+                    .collect::<Vec<_>>(),
+            );
+            Ok(())
         }
     }
 }
