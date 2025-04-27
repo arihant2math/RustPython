@@ -214,7 +214,9 @@ pub(crate) mod _ctypes {
         // TODO: load_flags
         let cache = library::libcache();
         let mut cache_write = cache.write();
-        let (id, _) = cache_write.get_or_insert_lib(&name, vm).unwrap();
+        let (id, _) = cache_write.get_or_insert_lib(&name, vm).map_err(|e| {
+            vm.new_os_error(e.to_string())
+        })?;
         Ok(id)
     }
 
