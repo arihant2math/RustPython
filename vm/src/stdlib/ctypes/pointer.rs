@@ -7,7 +7,7 @@ use crate::{PyObjectRef, PyResult};
 #[pyclass(name = "PyCPointerType", base = "PyType", module = "_ctypes")]
 #[derive(PyPayload, Debug)]
 pub struct PyCPointerType {
-    pub(super) inner: PyCPointer,
+    pub inner: PyCPointer,
 }
 
 #[pyclass]

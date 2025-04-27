@@ -24,6 +24,7 @@ impl PyCFieldType {}
 pub struct PyCField {
     byte_offset: usize,
     byte_size: usize,
+    #[allow(unused)]
     index: usize,
     proto: PyTypeRef,
     anonymous: bool,
@@ -122,10 +123,12 @@ impl PyCField {
     }
 }
 
-pub(crate) fn low_bit(offset: usize) -> usize {
+#[inline(always)]
+pub const fn low_bit(offset: usize) -> usize {
     offset & 0xFFFF
 }
 
-pub(crate) fn high_bit(offset: usize) -> usize {
+#[inline(always)]
+pub const fn high_bit(offset: usize) -> usize {
     offset >> 16
 }
