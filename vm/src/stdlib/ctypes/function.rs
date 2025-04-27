@@ -27,6 +27,7 @@ pub trait ArgumentType {
 
 impl ArgumentType for PyTypeRef {
     fn to_ffi_type(&self, vm: &VirtualMachine) -> PyResult<Type> {
+        dbg!(&self);
         let typ = self
             .get_class_attr(vm.ctx.intern_str("_type_"))
             .ok_or(vm.new_type_error("Unsupported argument type".to_string()))?;
@@ -99,6 +100,7 @@ impl ReturnType for PyNone {
 #[pyclass(module = "_ctypes", name = "CFuncPtr", base = "PyCData")]
 #[derive(PyPayload)]
 pub struct PyCFuncPtr {
+    pub name: PyRwLock<Option<String>>,
     pub ptr: PyRwLock<Option<CodePtr>>,
     pub needs_free: AtomicCell<bool>,
     pub arg_types: PyRwLock<Option<Vec<PyTypeRef>>>,
@@ -130,7 +132,15 @@ impl Constructor for PyCFuncPtr {
             .nth(1)
             .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements".to_string()))?
             .clone();
-        let handle = handler.try_int(vm)?.as_bigint().clone();
+        let handle = handler.try_int(vm);
+        let handle = match handle {
+            Ok(handle) => handle.as_bigint().clone(),
+            Err(_) => handler
+                .get_attr("_handle", vm)?
+                .try_int(vm)?
+                .as_bigint()
+                .clone(),
+        };
         let library_cache = crate::stdlib::ctypes::library::libcache().read();
         let library = library_cache
             .get_lib(
@@ -158,6 +168,7 @@ impl Constructor for PyCFuncPtr {
             arg_types: PyRwLock::new(None),
             _flags_: AtomicCell::new(0),
             res_type: PyRwLock::new(None),
+            name: PyRwLock::new(Some(name)),
             handler,
         }
         .to_pyobject(vm))
@@ -170,18 +181,25 @@ impl Callable for PyCFuncPtr {
         // This is completely seperate from the C python implementation
 
         // Cif init
-        let arg_types = zelf.arg_types.read();
+        let arg_types: Vec<_> = match zelf.arg_types.read().clone() {
+            Some(tys) => tys,
+            None => args
+                .args
+                .clone()
+                .into_iter()
+                .map(|a| a.class().as_object().to_pyobject(vm).downcast().unwrap())
+                .collect()
+        };
         let ffi_arg_types = arg_types
-            .as_ref()
-            .ok_or_else(|| vm.new_type_error("argtypes not set".to_string()))?
+            .clone()
             .iter()
-            .map(|t| ArgumentType::to_ffi_type(t, vm).unwrap())
-            .collect::<Vec<_>>();
+            .map(|t| ArgumentType::to_ffi_type(t, vm))
+            .collect::<PyResult<Vec<_>>>()?;
         let return_type = zelf.res_type.read();
         let ffi_return_type = return_type
             .as_ref()
             .map(|t| ReturnType::to_ffi_type(&t.clone().downcast::<PyType>().unwrap()))
-            .ok_or_else(|| vm.new_type_error("restype improperly set".to_string()))?
+            .flatten()
             .unwrap_or_else(|| Type::i32());
         let cif = Cif::new(ffi_arg_types, ffi_return_type);
 
@@ -192,8 +210,6 @@ impl Callable for PyCFuncPtr {
             .enumerate()
             .map(|(n, arg)| {
                 let arg_type = arg_types
-                    .as_ref()
-                    .ok_or_else(|| vm.new_type_error("argtypes not set".to_string()))?
                     .get(n)
                     .ok_or_else(|| vm.new_type_error("argument amount mismatch".to_string()))?;
                 arg_type.convert_object(arg, vm)
@@ -270,7 +286,7 @@ impl PyCFuncPtr {
                 .into_iter()
                 .map(|t| t.to_pyobject(vm))
                 .collect(),
-            &vm.ctx
+            &vm.ctx,
         )
     }
 
@@ -290,5 +306,17 @@ impl PyCFuncPtr {
             );
             Ok(())
         }
+    }
+
+    #[pygetset(magic)]
+    fn name(&self) -> Option<String> {
+        self.name.read().clone()
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_name(&self, name: String) -> PyResult<()> {
+        *self.name.write() = Some(name);
+        // TODO: update handle and stuff
+        Ok(())
     }
 }
