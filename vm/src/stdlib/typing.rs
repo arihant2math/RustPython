@@ -78,6 +78,26 @@ pub(crate) mod _typing {
         fn name(&self) -> PyObjectRef {
             self.name.clone()
         }
+
+        #[pygetset(magic)]
+        fn covariant(&self) -> bool {
+            self.covariant
+        }
+
+        #[pygetset(magic)]
+        fn contravariant(&self) -> bool {
+            self.contravariant
+        }
+
+        #[pygetset(magic)]
+        fn infer_variance(&self) -> bool {
+            self.infer_variance
+        }
+
+        #[pymethod(magic)]
+        fn mro_entries(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of TypeVar".to_string()))
+        }
     }
 
     pub(crate) fn make_typevar(
@@ -112,25 +132,7 @@ pub(crate) mod _typing {
         infer_variance: bool,
     }
 
-    impl Representable for ParamSpec {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            if zelf.infer_variance {
-                return zelf.name.str(vm).map(|s| s.to_string());
-            }
-            let variance = if zelf.covariant {
-                '+'
-            } else if zelf.contravariant {
-                '-'
-            } else {
-                '~'
-            };
-            let name = zelf.name.str(vm)?;
-            let name = name.to_string();
-            Ok(format!("{}{}", variance, name))
-        }
-    }
-
-    #[pyclass(flags(BASETYPE), with(Representable))]
+    #[pyclass(flags(BASETYPE))]
     impl ParamSpec {
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
@@ -193,6 +195,11 @@ pub(crate) mod _typing {
             // TODO: fix
             Ok(self.evaluate_default.is_some() || self.default_value.is_some())
         }
+
+        #[pymethod(magic)]
+        fn mro_entries(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpec".to_string()))
+        }
     }
 
     pub(crate) fn make_paramspec(name: PyObjectRef) -> ParamSpec {
@@ -216,7 +223,7 @@ pub(crate) mod _typing {
     }
 
     impl Representable for NoDefault {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok("typing.NoDefault".to_string())
         }
     }
