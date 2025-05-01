@@ -112,7 +112,25 @@ pub(crate) mod _typing {
         infer_variance: bool,
     }
 
-    #[pyclass(flags(BASETYPE))]
+    impl Representable for ParamSpec {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            if zelf.infer_variance {
+                return zelf.name.str(vm).map(|s| s.to_string());
+            }
+            let variance = if zelf.covariant {
+                '+'
+            } else if zelf.contravariant {
+                '-'
+            } else {
+                '~'
+            };
+            let name = zelf.name.str(vm)?;
+            let name = name.to_string();
+            Ok(format!("{}{}", variance, name))
+        }
+    }
+
+    #[pyclass(flags(BASETYPE), with(Representable))]
     impl ParamSpec {
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
@@ -197,7 +215,13 @@ pub(crate) mod _typing {
         name: PyObjectRef,
     }
 
-    #[pyclass(flags(BASETYPE))]
+    impl Representable for NoDefault {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            Ok("typing.NoDefault".to_string())
+        }
+    }
+
+    #[pyclass(flags(BASETYPE), with(Representable))]
     impl NoDefault {}
 
     #[pyattr]
