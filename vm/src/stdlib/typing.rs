@@ -3,9 +3,10 @@ pub(crate) use _typing::make_module;
 #[pymodule]
 pub(crate) mod _typing {
     use crate::{
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs},
+        types::Representable
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -39,7 +40,26 @@ pub(crate) mod _typing {
         contravariant: bool,
         infer_variance: bool,
     }
-    #[pyclass(flags(BASETYPE))]
+
+    impl Representable for TypeVar {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            if zelf.infer_variance {
+                return zelf.name.str(vm).map(|s| s.to_string());
+            }
+            let variance = if zelf.covariant {
+                '+'
+            } else if zelf.contravariant {
+                '-'
+            } else {
+                '~'
+            };
+            let name = zelf.name.str(vm)?;
+            let name = name.to_string();
+            Ok(format!("{}{}", variance, name))
+        }
+    }
+
+    #[pyclass(flags(BASETYPE), with(Representable))]
     impl TypeVar {
         pub(crate) fn _bound(&self, vm: &VirtualMachine) -> PyResult {
             let mut bound = self.bound.lock();
