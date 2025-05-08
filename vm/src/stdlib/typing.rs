@@ -5,8 +5,9 @@ pub(crate) mod _typing {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
+        convert::ToPyResult,
         function::{FuncArgs, IntoFuncArgs},
-        types::Representable
+        types::{Constructor, Representable}
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -42,6 +43,7 @@ pub(crate) mod _typing {
     }
 
     impl Representable for TypeVar {
+        #[inline]
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             if zelf.infer_variance {
                 return zelf.name.str(vm).map(|s| s.to_string());
@@ -132,7 +134,44 @@ pub(crate) mod _typing {
         infer_variance: bool,
     }
 
-    #[pyclass(flags(BASETYPE))]
+    #[derive(FromArgs, Debug)]
+    pub(crate) struct ParamSpecConstructorArgs {
+        #[pyarg(positional)]
+        name: PyObjectRef,
+        #[pyarg(positional, default = None)]
+        bound: Option<PyObjectRef>,
+        // TODO: Default is actually _Py_NoDefaultStruct
+        #[pyarg(positional, default = None)]
+        default_value: Option<PyObjectRef>,
+        #[pyarg(positional, default = false)]
+        covariant: bool,
+        #[pyarg(positional, default = false)]
+        contravariant: bool,
+        #[pyarg(positional, default = false)]
+        infer_variance: bool,
+    }
+
+    impl Constructor for ParamSpec {
+        type Args = ParamSpecConstructorArgs;
+
+        fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            if vm.is_none(&args.name) {
+                return Err(vm.new_type_error("ParamSpec name cannot be None".to_string()));
+            }
+            let paramspec = ParamSpec {
+                name: args.name,
+                bound: args.bound,
+                default_value: args.default_value,
+                evaluate_default: None,
+                covariant: args.covariant,
+                contravariant: args.contravariant,
+                infer_variance: args.infer_variance,
+            };
+            paramspec.to_pyresult(vm)
+        }
+    }
+
+    #[pyclass(flags(BASETYPE), with(Constructor))]
     impl ParamSpec {
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
@@ -215,11 +254,23 @@ pub(crate) mod _typing {
     }
 
     #[pyattr]
-    #[pyclass(name = "NoDefault")]
+    #[pyclass(module = false, name = "NoDefault")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct NoDefault {
         name: PyObjectRef,
+    }
+
+    impl Constructor for NoDefault {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            if args.args.len() != 0 || args.kwargs.len() != 0 {
+                return Err(vm.new_type_error("NoDefault takes no arguments".to_string()));
+            }
+            let no_default = NoDefault { name: vm.ctx.none() };
+            no_default.to_pyresult(vm)
+        }
     }
 
     impl Representable for NoDefault {
@@ -228,8 +279,13 @@ pub(crate) mod _typing {
         }
     }
 
-    #[pyclass(flags(BASETYPE), with(Representable))]
-    impl NoDefault {}
+    #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
+    impl NoDefault {
+        #[pymethod]
+        fn reduce(&self) -> String {
+            "NoDefault".to_string()
+        }
+    }
 
     #[pyattr]
     #[pyclass(name = "TypeVarTuple")]
