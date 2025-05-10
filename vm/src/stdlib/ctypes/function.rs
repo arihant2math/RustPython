@@ -27,7 +27,6 @@ pub trait ArgumentType {
 
 impl ArgumentType for PyTypeRef {
     fn to_ffi_type(&self, vm: &VirtualMachine) -> PyResult<Type> {
-        dbg!(&self);
         let typ = self
             .get_class_attr(vm.ctx.intern_str("_type_"))
             .ok_or(vm.new_type_error("Unsupported argument type".to_string()))?;
